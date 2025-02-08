@@ -23,7 +23,7 @@ npx hardhat node
 npx hardhat ignition deploy ./ignition/modules/DEDUAssess.sol.js --network localhost
 ```
 
-To deploying contract on testnet you need to provide `API_KEY` and `PRIVATE_KET` in `hardhat.config.js` and run:
+To deploying contract on testnet you need to provide `API_KEY` and `PRIVATE_KET` in `.env` or hardcode in `hardhat.config.js` and run:
 ```shell
 npx hardhat ignition deploy ./ignition/modules/DEDUAssess.sol.js --network polygon_amoy
 ```
