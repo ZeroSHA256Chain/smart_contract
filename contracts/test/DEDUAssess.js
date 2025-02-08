@@ -66,7 +66,7 @@ describe("DEDUAssess", function () {
     it("Should revert getting non-existent project", async function () {
             const { contract } =  await loadFixture(deploy);
 
-            expect(contract.getProject(0)).to.be.revertedWith("No project with this id");
+            expect(contract.getProject(0)).to.be.revertedWith("Project does not exists");
         });
     });
 

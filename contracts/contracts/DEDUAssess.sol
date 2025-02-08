@@ -45,9 +45,19 @@ contract DEDUAssess {
         _;
     }
 
-    function requireSubmissionPending(Submission memory submission) public pure {
-        require(!submission.isVerified, "Task already verified");
-        require(!submission.isRejected, "Task already rejected");
+    modifier onlyAllowedStudent(uint256 projectId) {
+        require(isAllowedStudent(projectId, msg.sender), "Not allowed to submit");
+        _;
+    }
+
+    modifier projectExists(uint256 projectId) {
+        require(projectCount >= projectId + 1, "Project does not exists");
+        _;
+    }
+
+    modifier submissionExists(uint256 projectId, address student) {
+        require(submissions[projectId][student].taskHash != bytes32(0), "Submission does not exist");
+        _;
     }
 
     function isVerifier(uint256 projectId, address user) public view returns (bool) {
@@ -56,12 +66,13 @@ contract DEDUAssess {
     }
 
     function isAllowedStudent(uint256 projectId, address student) public view returns (bool) {
-        if (!projects[projectId].isRestricted) return true;
+        if (projectCount >= projectId + 1 && !projects[projectId].isRestricted) return true;
         return projects[projectId].allowedStudents[student];
     }
 
-    function submissionExists(uint256 projectId, address student) public view returns (bool) {
-        return submissions[projectId][student].taskHash != bytes32(0);
+    function requireSubmissionPending(Submission memory submission) internal pure {
+        require(!submission.isVerified, "Task already verified");
+        require(!submission.isRejected, "Task already rejected");
     }
 
     function createProject(
@@ -93,10 +104,11 @@ contract DEDUAssess {
         emit ProjectCreated(projectId, name, msg.sender);
     }
 
-    function submitTask(uint256 projectId, bytes32 taskHash) public {
+    function submitTask(
+        uint256 projectId,
+        bytes32 taskHash
+    ) public projectExists(projectId) onlyAllowedStudent(projectId) {
         require(block.timestamp <= projects[projectId].deadline, "Deadline passed");
-
-        require(isAllowedStudent(projectId, msg.sender), "Not allowed to submit");
 
         if (!projects[projectId].allowResubmission) {
             require(submissions[projectId][msg.sender].taskHash == bytes32(0), "Resubmission not allowed");
@@ -108,8 +120,11 @@ contract DEDUAssess {
         emit TaskSubmitted(projectId, msg.sender, taskHash);
     }
 
-    function verifyTask(uint256 projectId, address student, uint8 grade) public onlyVerifier(projectId) {
-        submissionExists(projectId, student);
+    function verifyTask(
+        uint256 projectId,
+        address student,
+        uint8 grade
+    ) public projectExists(projectId) onlyVerifier(projectId) submissionExists(projectId, student) {
         require(grade <= 100, "Invalid grade");
 
         Submission storage submission = submissions[projectId][student];
@@ -122,9 +137,10 @@ contract DEDUAssess {
         emit TaskVerified(projectId, student, submission.taskHash, grade);
     }
 
-    function rejectTask(uint256 projectId, address student) public onlyVerifier(projectId) {
-        submissionExists(projectId, student);
-
+    function rejectTask(
+        uint256 projectId,
+        address student
+    ) public projectExists(projectId) onlyVerifier(projectId) submissionExists(projectId, student) {
         Submission storage submission = submissions[projectId][student];
         requireSubmissionPending(submission);
 
@@ -137,13 +153,16 @@ contract DEDUAssess {
         return verifiedTasks[taskHash];
     }
 
-    function getSubmission(uint256 projectId, address student) public view returns (Submission memory) {
-        submissionExists(projectId, student);
+    function getSubmission(
+        uint256 projectId,
+        address student
+    ) public view projectExists(projectId) submissionExists(projectId, student) returns (Submission memory) {
         return submissions[projectId][student];
     }
 
-    function getProject(uint256 projectId) public view returns (ProjectView memory) {
-        require(projectCount >= projectId + 1, "No project with this id");
+    function getProject(
+        uint256 projectId
+    ) public view projectExists(projectId) returns (ProjectView memory) {
         return ProjectView(
             projects[projectId].name,
             projects[projectId].description,
