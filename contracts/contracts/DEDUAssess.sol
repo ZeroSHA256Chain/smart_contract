@@ -31,7 +31,7 @@ contract DEDUAssess {
 
     mapping(uint256 => Project) private projects;
     mapping(uint256 => mapping(address => Submission)) public submissions;
-    mapping(bytes32 => bool) public verifiedTasks;
+    mapping(bytes32 => uint8) public verifiedTasks;
 
     uint256 public projectCount;
 
@@ -132,7 +132,7 @@ contract DEDUAssess {
 
         submission.isVerified = true;
         submission.grade = grade;
-        verifiedTasks[submission.taskHash] = true;
+        verifiedTasks[submission.taskHash] = grade;
 
         emit TaskVerified(projectId, student, submission.taskHash, grade);
     }
@@ -149,7 +149,7 @@ contract DEDUAssess {
         emit TaskRejected(projectId, student);
     }
 
-    function checkTaskVerified(bytes32 taskHash) public view returns (bool) {
+    function checkTaskVerified(bytes32 taskHash) public view returns (uint8) {
         return verifiedTasks[taskHash];
     }
 
