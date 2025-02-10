@@ -6,11 +6,12 @@ describe("DEDUAssess", function () {
         [mentor, verifier1, verifier2, student1, student2, student3 ] = await ethers.getSigners();
         const deadline = (await time.latest()) + 86400 * 7; // 7 days later
         const taskHash = ethers.keccak256(ethers.toUtf8Bytes("Task 1"));
+        const taskHash2 = ethers.keccak256(ethers.toUtf8Bytes("Task 2"));
 
         const Assess = await ethers.getContractFactory("DEDUAssess");
         const contract = await Assess.deploy()
 
-        return { contract, deadline, taskHash, mentor, verifier1, verifier2, student1, student2, student3 };
+        return { contract, deadline, taskHash, taskHash2, mentor, verifier1, verifier2, student1, student2, student3 };
     }
 
     describe("Project Creation", function () {
@@ -139,7 +140,7 @@ describe("DEDUAssess", function () {
         })
 
         it("Should allow resubmission if enabled", async function () {
-            const { contract, deadline, taskHash } =  await loadFixture(deploy);
+            const { contract, deadline, taskHash, taskHash2 } =  await loadFixture(deploy);
 
             await contract.createProject(
                 "Project 1",
@@ -151,9 +152,9 @@ describe("DEDUAssess", function () {
             );
 
             await contract.connect(student1).submitTask(0, taskHash)
-            await expect(contract.connect(student1).submitTask(0, taskHash))
+            await expect(contract.connect(student1).submitTask(0, taskHash2))
                 .to.emit(contract, "TaskSubmitted")
-                .withArgs(0, student1.address, taskHash);
+                .withArgs(0, student1.address, taskHash2);
         });
 
         it("Should revert resubmission if disabled", async function () {
@@ -188,6 +189,22 @@ describe("DEDUAssess", function () {
 
             await expect(contract.connect(student1).submitTask(0, taskHash))
                 .to.be.revertedWith("Task already verified");
+        });
+
+        it("Should revert submission if submitted the same task", async function () {
+            const { contract, deadline, taskHash } =  await loadFixture(deploy);
+
+            await contract.createProject(
+                "Project 1",
+                "Description",
+                deadline,
+                true,
+                [],
+                []
+            );
+            await contract.connect(student1).submitTask(0, taskHash);
+            await expect(contract.connect(student1).submitTask(0, taskHash))
+                .to.be.revertedWith("The same task already submitted");
         });
     });
 

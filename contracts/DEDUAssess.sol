@@ -109,12 +109,13 @@ contract DEDUAssess {
         bytes32 taskHash
     ) public projectExists(projectId) onlyAllowedStudent(projectId) {
         require(block.timestamp <= projects[projectId].deadline, "Deadline passed");
+        require(!submissions[projectId][msg.sender].isVerified, "Task already verified");
 
         if (!projects[projectId].allowResubmission) {
             require(submissions[projectId][msg.sender].taskHash == bytes32(0), "Resubmission not allowed");
+        } else {
+            require(submissions[projectId][msg.sender].taskHash != taskHash, "The same task already submitted");
         }
-
-        require(!submissions[projectId][msg.sender].isVerified, "Task already verified");
 
         submissions[projectId][msg.sender] = Submission(taskHash, false, false, 0);
         emit TaskSubmitted(projectId, msg.sender, taskHash);
