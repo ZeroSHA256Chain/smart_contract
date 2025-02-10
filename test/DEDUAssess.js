@@ -203,7 +203,7 @@ describe("DEDUAssess", function () {
                 [verifier1],
                 []
             );
-            expect(await contract.checkTaskVerified(taskHash)).to.equal(0);
+            expect(await contract.verifiedTasks(taskHash)).to.equal(0);
 
             await contract.connect(student1).submitTask(0, taskHash);
 
@@ -216,7 +216,7 @@ describe("DEDUAssess", function () {
             expect(submission.isRejected).to.be.false
             expect(submission.grade).to.equal(90);
 
-            expect(await contract.checkTaskVerified(taskHash)).to.equal(90);
+            expect(await contract.verifiedTasks(taskHash)).to.equal(90);
         });
 
         it("Should allow verifiers to reject a task", async function () {
