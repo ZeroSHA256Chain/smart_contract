@@ -68,6 +68,7 @@ contract DEDUAssess {
     }
 
     function isAllowedStudent(uint256 projectId, address user) public view returns (bool) {
+        if (isVerifier(projectId, user)) return false;
         if (projectCount >= projectId + 1 && !projects[projectId].isRestricted) return true;
         return projects[projectId].allowedStudents[user];
     }
