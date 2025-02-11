@@ -11,6 +11,7 @@ contract DEDUAssess {
         mapping(address => bool) allowedStudents; // only allowed students can send ther tasks
         bool isRestricted;
         bool allowResubmission;
+        uint256 submissionCount;
     }
 
     struct ProjectView {
@@ -20,9 +21,11 @@ contract DEDUAssess {
         address mentor;
         bool isRestricted;
         bool allowResubmission;
+        uint256 submissionCount;
     }
 
     struct Submission {
+        uint256 id;
         bytes32 taskHash;
         bool isVerified;
         bool isRejected;
@@ -31,14 +34,13 @@ contract DEDUAssess {
 
     mapping(uint256 => Project) private projects;
     mapping(uint256 => mapping(address => Submission)) private submissions;
-    mapping(bytes32 => uint8) public verifiedTasks;
 
     uint256 public projectCount;
 
     event ProjectCreated(uint256 projectId, string name, address mentor);
-    event TaskSubmitted(uint256 projectId, address student, bytes32 taskHash);
-    event TaskVerified(uint256 projectId, address student, bytes32 taskHash, uint8 grade);
-    event TaskRejected(uint256 projectId, address student);
+    event TaskSubmitted(uint256 projectId, uint256 submissionId, address student, bytes32 taskHash);
+    event TaskVerified(uint256 projectId, uint256 submissionId, address student, bytes32 taskHash, uint8 grade);
+    event TaskRejected(uint256 projectId, uint256 submissionId, address student);
 
     modifier onlyVerifier(uint256 projectId) {
         require(isVerifier(projectId, msg.sender), "Not a verifier");
@@ -65,9 +67,9 @@ contract DEDUAssess {
         return projects[projectId].verifiers[user];
     }
 
-    function isAllowedStudent(uint256 projectId, address student) public view returns (bool) {
+    function isAllowedStudent(uint256 projectId, address user) public view returns (bool) {
         if (projectCount >= projectId + 1 && !projects[projectId].isRestricted) return true;
-        return projects[projectId].allowedStudents[student];
+        return projects[projectId].allowedStudents[user];
     }
 
     function requireSubmissionPending(Submission memory submission) internal pure {
@@ -92,6 +94,7 @@ contract DEDUAssess {
         projects[projectId].mentor = msg.sender;
         projects[projectId].isRestricted = allowedStudents.length > 0;
         projects[projectId].allowResubmission = allowResubmission;
+        projects[projectId].submissionCount = 0;
 
         for (uint256 i = 0; i < verifiers.length; i++) {
             projects[projectId].verifiers[verifiers[i]] = true;
@@ -117,8 +120,11 @@ contract DEDUAssess {
             require(submissions[projectId][msg.sender].taskHash != taskHash, "The same task already submitted");
         }
 
-        submissions[projectId][msg.sender] = Submission(taskHash, false, false, 0);
-        emit TaskSubmitted(projectId, msg.sender, taskHash);
+        uint256 submissionId = projects[projectId].submissionCount++;
+        submissions[projectId][msg.sender] = Submission(
+            submissionId,taskHash, false, false, 0
+        );
+        emit TaskSubmitted(projectId, submissionId, msg.sender, taskHash);
     }
 
     function verifyTask(
@@ -133,9 +139,10 @@ contract DEDUAssess {
 
         submission.isVerified = true;
         submission.grade = grade;
-        verifiedTasks[submission.taskHash] = grade;
 
-        emit TaskVerified(projectId, student, submission.taskHash, grade);
+        emit TaskVerified(
+            projectId, submission.id, student, submission.taskHash, grade
+        );
     }
 
     function rejectTask(
@@ -147,7 +154,7 @@ contract DEDUAssess {
 
         submissions[projectId][student].isRejected = true;
 
-        emit TaskRejected(projectId, student);
+        emit TaskRejected(projectId, submission.id, student);
     }
 
     function getSubmission(
@@ -166,7 +173,8 @@ contract DEDUAssess {
             projects[projectId].deadline,
             projects[projectId].mentor,
             projects[projectId].isRestricted,
-            projects[projectId].allowResubmission
+            projects[projectId].allowResubmission,
+            projects[projectId].submissionCount
         );
     }
 }

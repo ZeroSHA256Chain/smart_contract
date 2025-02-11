@@ -86,7 +86,7 @@ describe("DEDUAssess", function () {
 
             await expect(contract.connect(student1).submitTask(0, taskHash))
                 .to.emit(contract, "TaskSubmitted")
-                .withArgs(0, student1.address, taskHash);
+                .withArgs(0, 0, student1.address, taskHash);
         });
 
         it("Should allow allowed students to submit a task", async function () {
@@ -103,7 +103,7 @@ describe("DEDUAssess", function () {
 
             await expect(contract.connect(student1).submitTask(0, taskHash))
                 .to.emit(contract, "TaskSubmitted")
-                .withArgs(0, student1.address, taskHash);
+                .withArgs(0, 0, student1.address, taskHash);
         });
 
         it("Should revert non-allowed student to submit a task", async function () {
@@ -121,6 +121,24 @@ describe("DEDUAssess", function () {
             await expect(contract.connect(student2).submitTask(0, taskHash))
                 .to.be.revertedWith("Not allowed to submit");
         });
+
+        it("Should revert mentor and verifiers to submit a task", async function () {
+            const { contract, deadline, verifier1, taskHash } =  await loadFixture(deploy);
+
+            await contract.createProject(
+                "Project 1",
+                "Description",
+                deadline,
+                false,
+                [verifier1],
+                []
+            );
+
+            await expect(contract.submitTask(0, taskHash))
+                .to.be.revertedWith("Not allowed to submit");
+            await expect(contract.connect(verifier1).submitTask(0, taskHash))
+                .to.be.revertedWith("Not allowed to submit");
+        })
 
         it("Should revert submitting a task after the deadline", async function () {
             const { contract, deadline, taskHash } =  await loadFixture(deploy);
@@ -154,7 +172,7 @@ describe("DEDUAssess", function () {
             await contract.connect(student1).submitTask(0, taskHash)
             await expect(contract.connect(student1).submitTask(0, taskHash2))
                 .to.emit(contract, "TaskSubmitted")
-                .withArgs(0, student1.address, taskHash2);
+                .withArgs(0, 1, student1.address, taskHash2);
         });
 
         it("Should revert resubmission if disabled", async function () {
@@ -220,20 +238,21 @@ describe("DEDUAssess", function () {
                 [verifier1],
                 []
             );
-            expect(await contract.verifiedTasks(taskHash)).to.equal(0);
 
             await contract.connect(student1).submitTask(0, taskHash);
+            const new_submission = await contract.getSubmission(0, student1)
+            expect(new_submission.isVerified).to.be.false
 
             await expect(contract.connect(verifier1).verifyTask(0, student1.address, 90))
                 .to.emit(contract, "TaskVerified")
-                .withArgs(0, student1.address, taskHash, 90);
+                .withArgs(0, 0, student1.address, taskHash, 90);
 
             const submission = await contract.getSubmission(0, student1.address);
+            expect(submission.id).to.equal(0);
             expect(submission.isVerified).to.be.true
             expect(submission.isRejected).to.be.false
             expect(submission.grade).to.equal(90);
-
-            expect(await contract.verifiedTasks(taskHash)).to.equal(90);
+            expect(submission.taskHash).to.equal(taskHash);
         });
 
         it("Should allow verifiers to reject a task", async function () {
@@ -252,7 +271,7 @@ describe("DEDUAssess", function () {
 
             await expect(contract.connect(verifier1).rejectTask(0, student1.address))
                 .to.emit(contract, "TaskRejected")
-                .withArgs(0, student1.address);
+                .withArgs(0, 0, student1.address);
         });
 
         it("Should revert non-verifier to verify a task", async function () {
@@ -304,7 +323,7 @@ describe("DEDUAssess", function () {
             await contract.connect(student1).submitTask(0, taskHash)
             await expect(contract.connect(verifier1).verifyTask(0, student1.address, 90))
                 .to.emit(contract, "TaskVerified")
-                .withArgs(0, student1.address, taskHash, 90);
+                .withArgs(0, 0, student1.address, taskHash, 90);
 
             await expect(contract.connect(verifier1).verifyTask(0, student1.address, 90))
                 .to.be.revertedWith("Task already verified");
@@ -328,7 +347,7 @@ describe("DEDUAssess", function () {
 
             await expect(contract.connect(verifier1).rejectTask(0, student1.address))
                 .to.emit(contract, "TaskRejected")
-                .withArgs(0, student1.address);
+                .withArgs(0, 0, student1.address);
 
             await expect(contract.connect(verifier1).verifyTask(0, student1.address, 90))
                 .to.be.revertedWith("Task already rejected");
