@@ -30,7 +30,7 @@ npx hardhat ignition deploy ./ignition/modules/DEDUAssess.js --network polygon_a
 
 Latest deployed contract address:
 ```
-0x2A4c1D303224A700BA8d7cC2d56fE3112c14D41B
+0xC3B6ECF9E480c27A9492A975710Bb976ED008e7b
 ```
 On scaner:
-https://amoy.polygonscan.com/address/0x2A4c1D303224A700BA8d7cC2d56fE3112c14D41B
+https://amoy.polygonscan.com/address/0xC3B6ECF9E480c27A9492A975710Bb976ED008e7b
