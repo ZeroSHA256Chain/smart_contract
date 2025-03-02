@@ -105,14 +105,15 @@ contract AuctionHouse is Ownable {
     uint256 public feeRate;
 
     event AuctionCreated(uint256 indexed auctionId, address creator);
-    event BidPlaced(uint256 indexed auctionId, uint256 bidId, address bidder, uint256 amount);
-    event BidWithdrawn(uint256 indexed auctionId, uint256 bidId, address bidder, uint256 amount);
     event AuctionFinalized(uint256 indexed auctionId, address winner, uint256 finalPrice);
     event AuctionRefunded(uint256 indexed auctionId, address bidder, uint256 refundedAmount);
     event ArbiterSet(uint256 indexed auctionId, address arbiter);
     event NewArbiterRequest(uint256 indexed auctionId, address arbiter);
+    event BidPlaced(uint256 indexed auctionId, uint256 bidId, address bidder, uint256 amount);
+    event BidWithdrawn(uint256 indexed auctionId, uint256 bidId, address bidder, uint256 amount);
+    event WithdrawAssets(uint256 indexed auctionId, address to, uint256 amount, uint256 assetId);
 
-    constructor(uint256 _fee, address _owner) Ownable(_owner) {
+    constructor(uint256 _fee) Ownable(msg.sender) {
         require(_fee <= 100 && _fee >= 1, "Fee must be between 1 and 100");
         feeRate = _fee;
     }
@@ -421,20 +422,26 @@ contract AuctionHouse is Ownable {
             "Auction already finalized"
         );
 
-        if (auction.bestBid.sender != address(0)) {
-            if (auction.status == AuctionStatus.Refunded) {
-                require(msg.sender == auction.creator, "Only creator can request withdraw if refunded");
-                _withdrawToken(auctionId, auction.creator);
-            } else {
-                auction.status = AuctionStatus.WaitFinalization;
-                if (auction.asset.kind != AssetType.Real) {
-                    _finalizeDigitalAsset(auction, auctionId);
-                } else {
-                    _finalizeRealAsset(auction, auctionId);
-                }
-            }
+        if (auction.bestBid.sender == address(0)) {
+            _withdrawToken(auctionId, auction.creator);
+            return;
+        }
+
+        if (auction.status == AuctionStatus.Refunded) {
+            require(msg.sender == auction.creator, "Only creator can withdraw if refunded");
+            _withdrawToken(auctionId, auction.creator);
+            return;
+        }
+
+        _finalizeAuction(auction, auctionId);
+    }
+
+    function _finalizeAuction(Auction storage auction, uint256 auctionId) internal {
+        auction.status = AuctionStatus.WaitFinalization;
+        if (auction.asset.kind != AssetType.Real) {
+            _finalizeDigitalAsset(auction, auctionId);
         } else {
-           _withdrawToken(auctionId, auction.creator);
+            _finalizeRealAsset(auction, auctionId);
         }
     }
 
@@ -446,6 +453,7 @@ contract AuctionHouse is Ownable {
             _withdrawToken(auctionId, auction.bestBid.sender);
         }
         if (auction.bestBid.withdrawn && _savedTokens[auction.creator][auctionId].withdrawn) {
+            auction.status = AuctionStatus.Finalized;
             emit AuctionFinalized(
                 auctionId, auction.bestBid.sender, auction.bestBid.price
             );
@@ -517,10 +525,16 @@ contract AuctionHouse is Ownable {
             "No ERC20 asset to withdraw"
         );
 
-        IERC20 token = IERC20(erc20Asset.tokenContract);
-        token.safeTransfer(to, erc20Asset.amount);
+        if (address(erc20Asset.tokenContract) == address(0)) {
+            payable(to).transfer(erc20Asset.amount);
+        } else {
+            IERC20 token = IERC20(erc20Asset.tokenContract);
+            token.safeTransfer(to, erc20Asset.amount);
+        }
 
         _savedTokens[auctions[auctionId].creator][auctionId].withdrawn = true;
+
+        emit WithdrawAssets(auctionId, to, erc20Asset.amount, 0);
     }
 
     function _withdrawERC721Asset(uint256 auctionId, address to) internal {
@@ -535,6 +549,8 @@ contract AuctionHouse is Ownable {
         token.transferFrom(address(this), to, erc721Asset.id);
 
         _savedTokens[auctions[auctionId].creator][auctionId].withdrawn = true;
+
+        emit WithdrawAssets(auctionId, to, 0, erc721Asset.id);
     }
 
     function _withdrawERC1155Asset(uint256 auctionId, address to) internal {
@@ -551,5 +567,7 @@ contract AuctionHouse is Ownable {
         token.safeTransferFrom(address(this), to, erc1155Asset.id, erc1155Asset.amount, "");
 
         _savedTokens[auctions[auctionId].creator][auctionId].withdrawn = true;
+
+        emit WithdrawAssets(auctionId, to, erc1155Asset.amount, erc1155Asset.id);
     }
 }

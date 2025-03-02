@@ -5,7 +5,7 @@ const { buildModule } = require("@nomicfoundation/hardhat-ignition/modules");
 
 
 module.exports = buildModule("AuctionModule", (m) => {
-  const auction = m.contract("AuctionHouse")
+  const auction = m.contract("AuctionHouse", [5])
 
   return { auction };
 });
