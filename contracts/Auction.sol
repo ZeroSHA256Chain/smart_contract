@@ -72,12 +72,37 @@ contract AuctionHouse is Ownable {
         bool withdrawn;
     }
 
+    struct RealAssetView {
+        address arbiter;
+    }
+
+    struct AssetView {
+        AssetType kind;
+        RealAssetView real;
+        ERC20Asset erc20;
+        ERC721Asset erc721;
+        ERC1155Asset erc1155;
+    }
+
+    struct AuctionView {
+        string title;
+        address creator;
+        uint256 bidsCount;
+        uint256 endTime;
+        uint256 startPrice;
+        uint256 bidStep;
+        Bid bestBid;
+        AssetView asset;
+        AuctionStatus status;
+    }
+
     mapping(uint256 => Auction) private auctions;
     mapping(uint256 => Bid[]) public bids;
     mapping(address => mapping(uint256 => SavedToken)) private _savedTokens;
 
     uint256 public auctionCount;
     uint256 private fees;
+    uint256 public feeRate;
 
     event AuctionCreated(uint256 indexed auctionId, address creator);
     event BidPlaced(uint256 indexed auctionId, uint256 bidId, address bidder, uint256 amount);
@@ -85,17 +110,29 @@ contract AuctionHouse is Ownable {
     event AuctionFinalized(uint256 indexed auctionId, address winner, uint256 finalPrice);
     event AuctionRefunded(uint256 indexed auctionId, address bidder, uint256 refundedAmount);
     event ArbiterSet(uint256 indexed auctionId, address arbiter);
-    event NewSwapArbiterRequest(uint256 indexed auctionId, address arbiter);
+    event NewArbiterRequest(uint256 indexed auctionId, address arbiter);
 
-    constructor() Ownable(msg.sender) {}
+    constructor(uint256 _fee, address _owner) Ownable(_owner) {
+        require(_fee <= 100 && _fee >= 1, "Fee must be between 1 and 100");
+        feeRate = _fee;
+    }
 
     function changeOwner(address newOwner) external onlyOwner {
         transferOwnership(newOwner);
     }
 
+   function calcFee(uint256 amount) public view returns (uint256) {
+        return (amount * feeRate) / 100;
+    }
+
     function withdrawFees() external onlyOwner {
         require(fees > 0, "Empty fees balance");
         payable(owner()).transfer(fees);
+        fees = 0;
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
+        return this.onERC1155Received.selector;
     }
 
     modifier onlyCreator(uint256 auctionId) {
@@ -110,11 +147,6 @@ contract AuctionHouse is Ownable {
 
     modifier onlyExpired(uint256 auctionId) {
         require(auctions[auctionId].endTime < block.timestamp, "Auction not expired");
-        _;
-    }
-
-    modifier onlyWaitFinalization(uint256 auctionId) {
-        require(auctions[auctionId].status != AuctionStatus.WaitFinalization, "Auction not wait finalization");
         _;
     }
 
@@ -150,19 +182,45 @@ contract AuctionHouse is Ownable {
         _;
     }
 
+    function getAuction(uint256 auctionId) public view returns (AuctionView memory){
+        return AuctionView(
+            auctions[auctionId].title,
+            auctions[auctionId].creator,
+            auctions[auctionId].bidsCount,
+            auctions[auctionId].endTime,
+            auctions[auctionId].startPrice,
+            auctions[auctionId].bidStep,
+            auctions[auctionId].bestBid,
+            AssetView(
+                auctions[auctionId].asset.kind,
+                RealAssetView(
+                    auctions[auctionId].asset.real.arbiter
+                ),
+                auctions[auctionId].asset.erc20,
+                auctions[auctionId].asset.erc721,
+                auctions[auctionId].asset.erc1155
+            ),
+            auctions[auctionId].status
+        );
+    }
+
     function verifyNewArbiter(
         uint256 auctionId, address newArbiter
-    ) external validateAddress(newArbiter) onlyExpired(auctionId) onlyWaitFinalization(auctionId) {
+    ) external validateAddress(newArbiter) onlyExpired(auctionId) onlyDealActors(auctionId) {
         Auction storage auction = auctions[auctionId];
         require(auction.asset.kind == AssetType.Real, "Invalid asset type");
-
         RealAsset storage asset = auction.asset.real;
+        require(msg.sender != asset.arbiter, "Arbiter cant call this");
+        require(newArbiter != asset.arbiter, "The same arbiter provided");
+        require(newArbiter != auction.creator, "Arbiter and creator cant be the same");
+        require(newArbiter != auction.bestBid.sender, "Arbiter and bestBidder cant be the same");
+
         asset.swapArbiterApproves[msg.sender][newArbiter] = true;
         if (asset.swapArbiterApproves[auction.creator][newArbiter]
             && asset.swapArbiterApproves[auction.bestBid.sender][newArbiter]) {
             _setArbiter(auctionId, newArbiter);
         } else {
-            emit NewSwapArbiterRequest(auctionId, newArbiter);
+            emit NewArbiterRequest(auctionId, newArbiter);
         }
     }
 
@@ -182,13 +240,14 @@ contract AuctionHouse is Ownable {
         uint256 assetId,
         uint256 assetAmount,
         address arbiter
-    ) external payable {
+    ) public payable {
         require(
             bytes(title).length > 0 && bytes(title).length < 16,
             "Title length must be greater than 0 and less than 16"
         );
         require(startPrice > 0 && bidStep > 0, "Start bid and bid step must be greater than zero");
         require(endTime > block.timestamp, "End time must be valid");
+        require(arbiter != msg.sender, "Arbiter and creator cant be the same");
 
         auctionCount++;
         Auction storage auction = auctions[auctionCount];
@@ -236,19 +295,23 @@ contract AuctionHouse is Ownable {
         Auction storage auction, address assetContract, uint256 assetAmount
     ) internal {
         require(assetAmount > 0, "Invalid ERC20 amount");
+        uint256 fee = calcFee(assetAmount);
         if (assetContract == address(0)) {
             require(assetAmount == msg.value, "Invalid ETH amount");
+            auction.asset.erc20.amount = assetAmount - fee;
         } else {
             IERC20 token = IERC20(assetContract);
             token.safeTransferFrom(msg.sender, address(this), assetAmount);
-            auction.asset.erc20 = ERC20Asset(assetAmount, token);
+            auction.asset.erc20 = ERC20Asset(assetAmount - fee, token);
         }
+
+        fees += fee;
         auction.asset.kind = AssetType.ERC20;
         _savedTokens[msg.sender][auctionCount] = SavedToken(
             AssetType.ERC20,
             assetContract,
             0,
-            0,
+            auction.asset.erc20.amount,
             false
         );
     }
@@ -257,6 +320,10 @@ contract AuctionHouse is Ownable {
         Auction storage auction, address assetContract, uint256 assetId
     ) internal validateAddress(assetContract) {
         IERC721 token = IERC721(assetContract);
+        require(assetId > 0, "Invalid assetId");
+        if (token.getApproved(assetId) != address(this)) {
+          revert("ERC721: insufficient approval");
+        }
         token.transferFrom(msg.sender, address(this), assetId);
         auction.asset.kind = AssetType.ERC721;
         auction.asset.erc721 = ERC721Asset(assetId, token);
@@ -273,6 +340,7 @@ contract AuctionHouse is Ownable {
         Auction storage auction, address assetContract, uint256 assetId, uint256 assetAmount
     ) internal validateAddress(assetContract) {
         require(assetAmount > 0, "Invalid ERC1155 amount");
+        require(assetId > 0, "Invalid assetId");
         IERC1155 token = IERC1155(assetContract);
         token.safeTransferFrom(msg.sender, address(this), assetId, assetAmount, "");
         auction.asset.kind = AssetType.ERC1155;
@@ -288,24 +356,24 @@ contract AuctionHouse is Ownable {
 
     function placeBid(uint256 auctionId) external payable onlyNonCreator(auctionId) onlyActive(auctionId) {
         require(msg.sender != auctions[auctionId].bestBid.sender, "You already place best bid");
+        require(msg.sender != auctions[auctionId].asset.real.arbiter, "Arbiter cant place bids");
 
-        uint256 baseBid = auctions[auctionId].startPrice;
+        uint256 nextBidAmount = auctions[auctionId].startPrice;
         if (auctions[auctionId].bestBid.price != 0) {
-            baseBid =  auctions[auctionId].bestBid.price + auctions[auctionId].bidStep;
+            nextBidAmount = auctions[auctionId].bestBid.price + auctions[auctionId].bidStep;
         }
 
-        uint256 fivePercent = baseBid * 5 / 100; // 5% fee
-        uint256 nextBidAmount = baseBid + fivePercent;
+        uint256 amount = msg.value;
+        uint256 fee = calcFee(msg.value);
+        amount -= fee;
 
-        require(msg.value >= nextBidAmount, "Insufficient amount");
+        require(amount >= nextBidAmount, "Invalid bid amount");
 
         auctions[auctionId].bidsCount++;
 
-        fees += fivePercent;
-        payable(address(this)).transfer(baseBid);
-
+        fees += fee;
         Bid memory newBestBid = Bid(
-            auctions[auctionId].bidsCount, msg.sender, baseBid, block.timestamp, false
+            auctions[auctionId].bidsCount, msg.sender, amount, block.timestamp, false
         );
         auctions[auctionId].bestBid = newBestBid;
         bids[auctionId].push(newBestBid);
@@ -314,11 +382,11 @@ contract AuctionHouse is Ownable {
             AssetType.ERC20,
             address(0),
             0,
-            baseBid,
+            amount,
             false
         );
 
-        emit BidPlaced(auctionId, auctions[auctionId].bidsCount, msg.sender, msg.value);
+        emit BidPlaced(auctionId, auctions[auctionId].bidsCount, msg.sender, amount);
     }
 
     function takeMyBid(uint256 auctionId, uint256 bidId) external onlyNonCreator(auctionId) {
@@ -343,7 +411,7 @@ contract AuctionHouse is Ownable {
         emit BidWithdrawn(auctionId, bidId, msg.sender, bids[auctionId][bidId].price);
     }
 
-    function requestWithdraw(uint256 auctionId) internal onlyDealActors(auctionId) {
+    function requestWithdraw(uint256 auctionId) external onlyDealActors(auctionId) {
         Auction storage auction = auctions[auctionId];
         require(block.timestamp >= auction.endTime, "Auction not yet ended");
         require(
