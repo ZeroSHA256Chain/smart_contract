@@ -398,11 +398,7 @@ contract AuctionHouse is Ownable {
             !bids[auctionId][bidId].withdrawn,
             "Tokens have been already withdrawn"
         );
-        require(
-            auctions[auctionId].bestBid.id != bidId
-            || block.timestamp - auctions[auctionId].endTime >= 86400 * 3,
-            "You cant take actual bid"
-        );
+        require(auctions[auctionId].bestBid.id != bidId, "You cant take actual bid");
 
         payable(msg.sender).transfer(bids[auctionId][bidId].price);
         bids[auctionId][bidId].withdrawn = true;
@@ -410,9 +406,8 @@ contract AuctionHouse is Ownable {
         emit BidWithdrawn(auctionId, bidId, msg.sender, bids[auctionId][bidId].price);
     }
 
-    function requestWithdraw(uint256 auctionId) external onlyDealActors(auctionId) {
+    function requestWithdraw(uint256 auctionId) external onlyExpired(auctionId) onlyDealActors(auctionId) {
         Auction storage auction = auctions[auctionId];
-        require(block.timestamp >= auction.endTime, "Auction not yet ended");
         require(
             auction.status == AuctionStatus.Active
             || auction.status == AuctionStatus.WaitFinalization
@@ -431,11 +426,11 @@ contract AuctionHouse is Ownable {
             return;
         }
 
+        auction.status = AuctionStatus.WaitFinalization;
         _finalizeAuction(auction, auctionId);
     }
 
     function _finalizeAuction(Auction storage auction, uint256 auctionId) internal {
-        auction.status = AuctionStatus.WaitFinalization;
         if (auction.asset.kind != AssetType.Real) {
             _finalizeDigitalAsset(auction, auctionId);
         } else {
@@ -447,9 +442,11 @@ contract AuctionHouse is Ownable {
         if (msg.sender == auction.creator) {
             require(!auction.bestBid.withdrawn, "Bid already have been withdrawn");
             payable(auction.creator).transfer(auction.bestBid.price);
+            auction.bestBid.withdrawn = true;
         } else {
             _withdrawToken(auctionId, auction.bestBid.sender);
         }
+
         if (auction.bestBid.withdrawn && _savedTokens[auction.creator][auctionId].withdrawn) {
             auction.status = AuctionStatus.Finalized;
             emit AuctionFinalized(
@@ -457,7 +454,6 @@ contract AuctionHouse is Ownable {
             );
         }
     }
-
 
     function _finalizeRealAsset(
         Auction storage auction, uint256 auctionId
@@ -472,6 +468,7 @@ contract AuctionHouse is Ownable {
         if (approvalCount >= 2 && msg.sender == auction.creator) {
             payable(auction.creator).transfer(auction.bestBid.price);
             auction.status = AuctionStatus.Finalized;
+            auction.bestBid.withdrawn = true;
             emit AuctionFinalized(
                 auctionId, auction.bestBid.sender, auction.bestBid.price
             );
@@ -481,6 +478,7 @@ contract AuctionHouse is Ownable {
     function approveRefund(
         uint256 auctionId
     ) public onlyExpired(auctionId) haveBids(auctionId) onlyDealActors(auctionId) notWithdrawn(auctionId) {
+        require(auctions[auctionId].asset.kind == AssetType.Real, "This asset dont support refunds");
         Auction storage auction = auctions[auctionId];
         auction.asset.real.refundRequests[msg.sender] = true;
 
@@ -492,6 +490,7 @@ contract AuctionHouse is Ownable {
         if (approvalCount >= 2 && msg.sender == auction.bestBid.sender) {
             payable(auction.bestBid.sender).transfer(auction.bestBid.price);
             auction.status = AuctionStatus.Refunded;
+            auction.bestBid.withdrawn = true;
             emit AuctionRefunded(
                 auctionId, auction.bestBid.sender, auction.bestBid.price
             );
