@@ -282,8 +282,6 @@ contract AuctionHouse is Ownable {
             setERC721Asset(auction, assetContract, assetId);
         } else if (assetType == AssetType.ERC1155) {
             setERC1155Asset(auction, assetContract, assetId, assetAmount);
-        } else {
-            revert("Invalid asset type");
         }
     }
 
@@ -505,7 +503,10 @@ contract AuctionHouse is Ownable {
 
         AssetType assetType = auctions[auctionId].asset.kind;
         require(assetType != AssetType.Real, "Asset with this type dont support withdraw");
-
+        require(
+            !_savedTokens[auctions[auctionId].creator][auctionId].withdrawn,
+            "Token has been already withdrawn"
+        );
         if (assetType == AssetType.ERC20) {
             _withdrawERC20Asset(auctionId, to);
         } else if (assetType == AssetType.ERC721) {
@@ -516,14 +517,7 @@ contract AuctionHouse is Ownable {
     }
 
     function _withdrawERC20Asset(uint256 auctionId, address to) internal {
-        require(auctions[auctionId].asset.kind == AssetType.ERC20, "Not an ERC20 asset");
-
         ERC20Asset storage erc20Asset = auctions[auctionId].asset.erc20;
-        require(
-            !_savedTokens[auctions[auctionId].creator][auctionId].withdrawn
-            && erc20Asset.amount > 0,
-            "No ERC20 asset to withdraw"
-        );
 
         if (address(erc20Asset.tokenContract) == address(0)) {
             payable(to).transfer(erc20Asset.amount);
@@ -538,12 +532,6 @@ contract AuctionHouse is Ownable {
     }
 
     function _withdrawERC721Asset(uint256 auctionId, address to) internal {
-        require(auctions[auctionId].asset.kind == AssetType.ERC721, "Not an ERC721 asset");
-        require(
-            !_savedTokens[auctions[auctionId].creator][auctionId].withdrawn,
-            "Token has been already withdrawn"
-        );
-
         ERC721Asset memory erc721Asset = auctions[auctionId].asset.erc721;
         IERC721 token = IERC721(erc721Asset.tokenContract);
         token.transferFrom(address(this), to, erc721Asset.id);
@@ -554,15 +542,7 @@ contract AuctionHouse is Ownable {
     }
 
     function _withdrawERC1155Asset(uint256 auctionId, address to) internal {
-        require(auctions[auctionId].asset.kind == AssetType.ERC1155, "Not an ERC1155 asset");
-
         ERC1155Asset memory erc1155Asset = auctions[auctionId].asset.erc1155;
-        require(
-            !_savedTokens[auctions[auctionId].creator][auctionId].withdrawn
-            && erc1155Asset.amount > 0,
-            "No ERC1155 asset to withdraw"
-        );
-
         IERC1155 token = IERC1155(erc1155Asset.tokenContract);
         token.safeTransferFrom(address(this), to, erc1155Asset.id, erc1155Asset.amount, "");
 
